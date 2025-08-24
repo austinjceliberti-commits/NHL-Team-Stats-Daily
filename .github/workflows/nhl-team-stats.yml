@@ -2,73 +2,68 @@ name: NHL Team Stats Daily
 
 on:
   schedule:
-    - cron: "15 10 * * *"     # daily at 10:15 UTC
+    - cron: "15 10 * * *"      # 10:15 UTC daily
   workflow_dispatch: {}
 
 jobs:
   load:
     runs-on: ubuntu-latest
+
+    env:
+      # "Hard-coded" safe parts (no secrets)
+      PG_HOST: jbzime1eq9.rj87e4urof.tsdb.cloud.timescale.com
+      PG_PORT: "34545"
+      PG_DB: tsdb
+      PG_USER: tsdbadmin
+
     steps:
       - uses: actions/checkout@v4
-
-      - name: Show repo tree
-        run: |
-          pwd
-          ls -la
-          echo "----- .github/workflows -----"
-          ls -la .github/workflows || true
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Verify DB_URL secret is present (not printing the value)
-        env:
-          DB_URL: ${{ secrets.DB_URL }}
-        run: |
-          python - << 'PY'
-          import os, sys
-          if not os.environ.get("DB_URL"):
-              print("ERROR: DB_URL secret is not set. Add it in Settings → Secrets → Actions.")
-              sys.exit(1)
-          print("DB_URL secret is set ✅")
-          PY
-
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Build normalized DB URL
+        env:
+          PG_PASSWORD: ${{ secrets.TIMESCALE_DB_PASSWORD }}
+        run: |
+          if [ -z "${PG_PASSWORD}" ]; then
+            echo "ERROR: Secret TIMESCALE_DB_PASSWORD is not set." >&2
+            exit 1
+          fi
+          DB_URL_NORM="postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}?sslmode=require"
+          echo "DB_URL_NORM=${DB_URL_NORM}" >> "$GITHUB_ENV"
+          echo "DB URL constructed ✅"
+
       - name: Quick DB connectivity test
         env:
-          DB_URL: ${{ secrets.DB_URL }}
+          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python - << 'PY'
           import os, psycopg2
           dsn = os.environ["DB_URL"]
-          try:
-              conn = psycopg2.connect(dsn)
-              cur = conn.cursor()
-              cur.execute("SELECT 1;")
-              print("DB connection OK ✅")
-              cur.close(); conn.close()
-          except Exception as e:
-              print("DB connection FAILED ❌:", e)
-              raise
+          conn = psycopg2.connect(dsn)
+          cur = conn.cursor()
+          cur.execute("SELECT 1")
+          print("DB connection OK ✅")
+          cur.close(); conn.close()
           PY
 
       - name: Run loader
         env:
-          DB_URL: ${{ secrets.DB_URL }}
-          # Optional: override season
-          # NHL_SEASON: "20252026"
+          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python daily_nhl_team_stats.py
 
       - name: Sanity check rows today
         env:
-          DB_URL: ${{ secrets.DB_URL }}
+          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python - << 'PY'
           import os, psycopg2
