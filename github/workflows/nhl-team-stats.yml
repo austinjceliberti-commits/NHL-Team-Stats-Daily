@@ -1,0 +1,30 @@
+name: NHL Team Stats Daily
+
+on:
+  schedule:
+    - cron: "15 10 * * *"   # runs daily at 10:15 UTC (~6:15am ET). Adjust to taste.
+  workflow_dispatch: {}      # lets you run it on-demand from Actions tab
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run loader
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          # Optional: pin season, else script infers current
+          # NHL_SEASON: "20252026"
+        run: |
+          python daily_nhl_team_stats.py
