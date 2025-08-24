@@ -2,7 +2,7 @@ name: NHL Team Stats Daily
 
 on:
   schedule:
-    - cron: "15 10 * * *"      # 10:15 UTC daily
+    - cron: "15 10 * * *"      # daily at 10:15 UTC
   workflow_dispatch: {}
 
 jobs:
@@ -10,11 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # "Hard-coded" safe parts (no secrets)
-      PG_HOST: jbzime1eq9.rj87e4urof.tsdb.cloud.timescale.com
-      PG_PORT: "34545"
-      PG_DB: tsdb
-      PG_USER: tsdbadmin
+      PGHOST: jbzime1eq9.rj87e4urof.tsdb.cloud.timescale.com
+      PGPORT: "34545"
+      PGDATABASE: tsdb
+      PGUSER: tsdbadmin
 
     steps:
       - uses: actions/checkout@v4
@@ -29,26 +28,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Build normalized DB URL
+      - name: Build DB URL
         env:
-          PG_PASSWORD: ${{ secrets.TIMESCALE_DB_PASSWORD }}
+          PGPASSWORD: ${{ secrets.TIMESCALE_DB_PASSWORD }}
         run: |
-          if [ -z "${PG_PASSWORD}" ]; then
-            echo "ERROR: Secret TIMESCALE_DB_PASSWORD is not set." >&2
-            exit 1
-          fi
-          DB_URL_NORM="postgres://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:${PG_PORT}/${PG_DB}?sslmode=require"
-          echo "DB_URL_NORM=${DB_URL_NORM}" >> "$GITHUB_ENV"
-          echo "DB URL constructed ✅"
+          echo "DB_URL=postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=require" >> $GITHUB_ENV
 
       - name: Quick DB connectivity test
-        env:
-          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python - << 'PY'
           import os, psycopg2
-          dsn = os.environ["DB_URL"]
-          conn = psycopg2.connect(dsn)
+          conn = psycopg2.connect(os.environ["DB_URL"])
           cur = conn.cursor()
           cur.execute("SELECT 1")
           print("DB connection OK ✅")
@@ -56,14 +46,12 @@ jobs:
           PY
 
       - name: Run loader
-        env:
-          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python daily_nhl_team_stats.py
+        env:
+          DB_URL: ${{ env.DB_URL }}
 
       - name: Sanity check rows today
-        env:
-          DB_URL: ${{ env.DB_URL_NORM }}
         run: |
           python - << 'PY'
           import os, psycopg2
@@ -73,3 +61,6 @@ jobs:
           print("rows_today =", cur.fetchone()[0])
           cur.close(); conn.close()
           PY
+        env:
+          DB_URL: ${{ env.DB_URL }}
+
