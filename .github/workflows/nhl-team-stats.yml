@@ -1,0 +1,28 @@
+name: NHL Team Stats Daily
+
+on:
+  schedule:
+    - cron: "15 10 * * *"   # every day 10:15 UTC (~6:15am ET)
+  workflow_dispatch: {}      # lets you run manually
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run NHL team stats loader
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+        run: |
+          python daily_nhl_team_stats.py
